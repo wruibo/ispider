@@ -1,15 +1,7 @@
+from util import log
 
-a = [1, 2, 3, 4]
-b = [5, 2]
-
-if(not set(a).isdisjoint(set(b))):
-    print("less")
-
-print(a)
-
-a.insert(3,4)
-
-print(a)
-
-if(2 in a) and (8 in a):
-    print("yes")
+i=0
+while(i<10000):
+    log.info("hello world!")
+    i = i+1
+    
