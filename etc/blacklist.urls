@@ -1,0 +1,3 @@
+#regex expression for white list urls
+
+^http://www.sohu.com/.*$
