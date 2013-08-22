@@ -2,65 +2,38 @@
 
 import configparser
 
-class cfg_base:
-    def __init__(self):
-        pass
-    
-    def __getattribute__(self, name):
-        name = name.lstrip('_')
-        return object.__getattribute__(self, name)
-    
-    def __setattr__(self, name, val):
-        name = name.lstrip('_')
-        object.__setattr__(self, name, val)
-        
-    def parse(self, cfg):
-        pass
-
 '''configure for logger moudle'''
-class cfg_logger(cfg_base):
+class conf_logger:
     def __init__(self):
+        #base configure for logger
         self._dir = "./log"
         self._name = "spider"
         self._level = "debug"
-        self._format = "[%(asctime)s][%(module)s][%(levelname)s]: %(message)s"
-        self._handler = "RotatingFileHandler('spider.rfh.log', 'a', 0, 0, None, 0)"
+        self._formatter = "[%(asctime)s][%(module)s][%(levelname)s]: %(message)s"
         
-    def parse(self, cfg):
-        self._dir = cfg.get("log", "dir")
-        self._name = cfg.get("log", "name")
-        self._level = cfg.get("log", "level")
-        self._format = cfg.get("log", "format")
-        self._handler = cfg.get("log", "handler")
+        #default handler using rotating file handler
+        self._handlers = {"RotatingFileHandler":{"filename":"spider.rfh.log", "mode":'a', "maxBytes":0, "backupCount":0, "encoding":None, "delay":0},
+                          "TimedRotatingFileHandler":{"filename":"spider.trfh.log", "when":'H', "interval":1, "backupCount":0, "encoding":None, "delay":0, "utc":False},
+                          "DatagramHandler":{"host":"0.0.0.0", "port":0}}
+        
 
 '''configure for page&file downloader'''
-class cfg_httpreq(cfg_base):
+class conf_http_request:
     def __init__(self):
         self._header = {}
+        
         self._filedir = "./files/"
         
         
-class config(cfg_base):
-    def __init__(self, path):
-        self._config = configparser.RawConfigParser()
+class config:
+    def __init__(self):
+        self._config = None
+    
+    def load(self, path):
+        self._config = configparser.ConfigParser()
         self._config.read(path)
         
-        self._logger = cfg_logger()
-        self._logger.parse(self._config)
 
-    
-    #just for debug
-    def dump(self):
-        for section in self._config.sections():
-            print("[", section, "]")
-            for item in self._config.items(section):
-                print(item[0], "=", item[1])
-
-if(__name__ == "__main__"):
-    mycfg = config("../etc/spider.cfg")
-    print(mycfg.logger.format)
-    print(mycfg.logger.handler)
-    
         
         
     
