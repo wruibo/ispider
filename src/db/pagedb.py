@@ -26,8 +26,9 @@ page content db file:
 class pagedb:
     def __init__(self, dbpath):
         self._dbpath = dbpath
+        self._maxdbsz = 2*1024*1024*1024
         
-        open(self, dbpath)
+        self.open(dbpath)
     
     def open(self, dbpath):
         #create db dirs if not exist
@@ -35,10 +36,7 @@ class pagedb:
             os.makedirs(dbpath)
         
         #load all the db informations
-        self.load(dbpath)
-        
-        #create new index & db file for saving pages
-        self._idxdb, self._contentdb, self._currfname = self.newdb(dbpath)
+        self._idxdb, self._contentdb, self._currfname = self.load(dbpath)
         
     def load(self, dbpath):
         #scan all files in dbpath
@@ -57,31 +55,59 @@ class pagedb:
                 self._idxfiles.append(file)
                 idxfname = file[0:-4]
                 #load information in the idx file
-                for record in open(file):
+                for record in open(dbpath+"/"+file):
                     record = record.strip()
+                    if(len(record) == 0): continue
                     url,ref,pos,size = record.split(",")
                     self._pageidx[url] = [ref,int(pos),int(size), idxfname]
             elif(file.endswith(".db")):
-                self._contentfiles.append(file)
+                self._contentfiles.append(file[0:-3])
             else:
                 continue
+        
+        #create current index&db file for writing
+        currfname = None
+        maxfsz = self._maxdbsz
+        for file in self._contentfiles:
+            fpath = dbpath+"/"+file+".db"
+            fsz = os.path.getsize(fpath)
+            if(fsz < maxfsz):
+                maxfsz = fsz
+                currfname = file
+                
+        if(not currfname): #create new index&db file
+            return self.newdb(dbpath)
+        else: #use old less size index&db file
+            idxdb = open(dbpath+"/"+currfname+".idx", "a+")
+            contentdb = open(dbpath+"/"+currfname+".db", "a+b")
+            return idxdb, contentdb, currfname
+            
         
     def newdb(self, dbpath):
         #use an uuid as primary part of file name
         fname = str(uuid.uuid4())
         
-        idxdb = open(dbpath+"/"+fname+".idx")
+        #open the db relate files
+        idxdb = open(dbpath+"/"+fname+".idx", "w")
         contentdb = open(dbpath+"/"+fname+".db", "wb")
+        
+        #save the file name
+        self._idxfiles.append(fname)
+        self._contentfiles.append(fname)
         
         return idxdb, contentdb, fname
         
     def put(self, url, ref, page):
         #zip the page first
         zipdata = gzip.compress(page)
+        size = len(zipdata)
         
         #get the current write pos of content file
         pos = self._contentdb.tell()
-        size = len(zipdata)
+        if(pos+size > self._maxdbsz): #create new db file is size reached
+            self._idxdb.close()
+            self._contentdb.close()
+            self._idxdb, self._contentdb, self._currfname = self.newdb(self._dbpath)
         
         #write content to db file first
         self._contentdb.write(zipdata)
@@ -108,9 +134,9 @@ class pagedb:
             #recover the file pointer to end
             self._contentdb.seek(0, io.SEEK_END)
         else:
-            dbfpath = self._dbpath+"/"+fname+".idx"
+            dbfpath = self._dbpath+"/"+fname+".db"
             if(os.path.isfile(dbfpath)):
-                dbf = open(dbfpath, 'r')
+                dbf = open(dbfpath, 'rb')
                 dbf.seek(pos)
                 data = gzip.decompress(dbf.read(size))
                 dbf.close()
@@ -127,5 +153,27 @@ class pagedb:
     
     
 if __name__ == "__main__":
-    pass
+    import urllib.request
+    pdb = pagedb("../../db/page")
+    
+    testflag = "put"
+    if(testflag == "put"):
+        for i in range(0, 100000):
+            strurl = "http://www.funshion.com/subject/"+str(i)+"/"
+            try:
+                furl = urllib.request.urlopen(strurl)
+                paged = furl.read()
+            
+                pdb.put(strurl, '', paged)
+                
+                pdb.sync()
+            except:
+                continue
+    else:
+        data = pdb.get("http://www.funshion.com/subject/27/")
+        fout = open("../../tmp.html", 'wb')
+        fout.write(data)
+        fout.close()
+    
+    
     
