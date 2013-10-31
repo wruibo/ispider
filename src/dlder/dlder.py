@@ -1,58 +1,119 @@
- #!/usr/bin/env python3
-import os
-import sys
+#!/usr/bin/env python3
+import re
 import time
-import http.client
-import urllib.parse
+import hashlib
+import threading
+import urllib.request
 
-import type
+import filedb
+import cute.linkq
 
-class dlder:    
-    def __init__(self):
-        pass
-    
-    @staticmethod
-    def download_file(url, file):
-        pres = urllib.parse.urlparse(url)
-        host, port, path = pres.hostname, pres.port, pres.path
-    
-        conn = http.client.HTTPConnection(host, port)
-        conn.connect()
-        conn.request("GET", path)
-        response = conn.getresponse()
+class downloader(threading.Thread): 
+    def __init__(self, dbpath):
+        #minimal links of queue, below the value means 'hungry'
+        self._links_min = 32
+        #url queue wait for downloading
+        self._linkq = cute.linkq.linkq()
+
+        #file db for downloaded files
+        self._filedb = filedb.filedb(dbpath)
         
-        fobj = open(file, 'wb')
-        
-        rd_sz = 512*1024
-        data = response.read(rd_sz)
-        while(len(data) != 0):
-            fobj.write(data)
-            data = response.read(rd_sz)
-        
-        conn.close()
-
-    def download_page(url):
-        pres = urllib.parse.urlparse(url)
-        host, port, path = pres.hostname, pres.port, pres.path
+        #stop flag for downloader
+        self._stopflag = False
+        #invoke parent's construct function
+        threading.Thread.__init__(self)
     
-        conn = http.client.HTTPConnection(host, port)
-        conn.connect()
-        conn.request("GET", path, None, {"Accept-Encoding":"gzip"})
+    def start(self):
+        self._stopflag = False
+        threading.Thread.start(self)
+            
+    #put a link [url, ref] to the url download queue
+    def put(self, link):
+        self._linkq.put(link)
+        
+    #put some links[[url, ref], ...] to the url download queue
+    def puts(self, links):
+        self._linkq.puts(links)
 
-        response = conn.getresponse()
-        print(response.getheaders())
-        page = response.read()
+    #get the next file url to download
+    def next(self):
+        return self._linkq.get()
 
-        return page
-
+    def hungry(self):
+        return self._linkq.size() < self._links_min
+    
+    #get the downloader load, waiting queue size
+    def load(self):
+        return self._linkq.size()
+    
+    #download a file specified by @url and save data to file db
+    def dld(self, url, ref):
+        #build an url request object to url
+        conn = urllib.request.urlopen(url)  
+        
+        #get file name from response header
+        fname = respmsg.get_filename()
+        if(not fname): 
+            items = re.search("([^\/]+)\.([^\.\/\\\]+)\Z", url)
+            if(not items): #use url sha1 as file name
+                m = hashlib.sha1()
+                m.update(url.encode())
+                fname = m.hexdigest()
+            else:
+                fname = items.group(0)
+                
+        #create db file
+        self._filedb.fopen(url, ref, fname)
+        
+        #download the file & save to db file
+        RDSZ = 256*1024
+        data = conn.read(RDSZ)
+        while(data):
+            self._filedb.fwrite(data)
+            data = conn.read(RDSZ)
+            
+        #close the db file    
+        self._filedb.fclose()
+            
+    def stop(self):
+        self._stopflag = True
+        threading.Thread.join(self)
+    
+    def info(self):
+        strmsg = "url queue length: " + str(self._linkq.size())+"\n"        
+        return strmsg
+        
+    #thread function for running
+    def run(self):
+        while(not self._stopflag):
+            #get the next url wait for downloading
+            link = self.next() 
+            if(not link):
+                time.sleep(1)
+                continue
+            #download the page content of the url
+            url, ref = link
+            try:
+                page = self.dld(url, ref)
+            except Exception as err:
+                print(err)
+            finally:
+                pass
+            
 if __name__ == "__main__":
-    page = dlder.download_page("http://www.qq.com/")
-    import gzip
-    data = gzip.decompress(page)
+    urls = []
+    for i in range(263, 1000):
+        for j in range(560, 1000):
+            url = "http://img0.fspcdn.com/pictures/"+str(i)+"/"+str(j)+"/"+str(i*1000+j)+".jpg"
+            urls.append([url, "http://www.funshion.com/"])
     
-    print(len(page))
-    print(len(data))
-        
-    strpage = data.decode('gb2312', 'ignore')
-    print(strpage[0:1000])
-    #print(page.decode('utf_8' ,'ignore'))
+    mydld = downloader("../../db/filedb")
+    mydld.puts(urls)
+    mydld.start()
+    
+    while(True):
+        print(mydld.info())
+        print("\r\n")
+        time.sleep(1)
+    
+    
